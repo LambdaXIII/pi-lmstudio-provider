@@ -11,6 +11,8 @@ This plugin does one thing well: **finds models loaded in LM Studio and register
 - 🔍 **Auto-detect** — Scans for LM Studio when pi starts, registers available models. No configuration needed.
 - 🧠 **Rich metadata** — Uses LM Studio's native REST API to get real context length, model type, and quantization info.
 - 🛠️ **You control the params** — temperature, top_p, and friends? Tune them in LM Studio. The plugin won't override your settings.
+- 📌 **Remembers your model** — Caches model list so you don't need to re-select after restarting pi.
+- 🔐 **Auth support** — Connect your LM Studio API Token via `/login` command or environment variable.
 
 > Want to tweak model parameters? Head to LM Studio's preset panel. pi will use whatever you've set.
 
@@ -28,6 +30,11 @@ flowchart LR
         E --> F[registerProvider<br/>Register as available models]
         F --> G[Chat inference<br/>POST /v1/chat/completions<br/>OpenAI-compatible API]
         G --> H[Tool calls · Streaming]
+    end
+
+    subgraph cache["Local Cache"]
+        K[~/.pi/agent/<br/>lmstudio-models.json] --> L[Sync load on startup<br/>Match defaultModel]
+        F -->|Write| K
     end
 
     subgraph lm["LM Studio"]
@@ -63,6 +70,7 @@ That's it. Launch pi and you're good to go — no extra config.
 |---------|-------------|
 | `/lmstudio` | Detect LM Studio, register models, show status |
 | `/lmstudio off` | Temporarily disable (current session only, auto-restores on next restart) |
+| `/login lmstudio` | Enter your LM Studio API Token (when auth is enabled) |
 
 ## ⚙️ Custom Port
 
@@ -75,6 +83,30 @@ LMSTUDIO_PORT=9999 pi
 # Multiple ports (comma-separated, scanned in order)
 LMSTUDIO_PORT=1234,8080,9999 pi
 ```
+
+## 🔐 API Token Authentication
+
+LM Studio doesn't require authentication by default — most users don't need to configure anything.
+
+If you've enabled authentication (**Developer → Server Settings → Require Authentication**), there are two ways to provide your token:
+
+### Option 1: /login command (recommended)
+
+Inside pi, simply type:
+
+```
+/login lmstudio
+```
+
+Pi will prompt you for the token. It's saved to `~/.pi/agent/auth.json` — you only need to enter it once.
+
+### Option 2: Environment variable
+
+```bash
+LM_API_TOKEN=your-token pi
+```
+
+Priority: environment variable > stored credentials. `LM_API_KEY` also works (backward compat).
 
 ## License
 
