@@ -45,22 +45,8 @@ flowchart LR
 
 ## 📦 Installation
 
-### From Git
-
 ```bash
-pi install git:github.com/<your-username>/pi-lmstudio-provider
-```
-
-### Local Development
-
-```bash
-pi install /absolute/path/to/pi-lmstudio-provider
-```
-
-One-off load (no install):
-
-```bash
-pi -e ./extensions/lmstudio-provider.ts
+pi install git:github.com/LambdaXIII/pi-lmstudio-provider
 ```
 
 ## 🔧 Prerequisites

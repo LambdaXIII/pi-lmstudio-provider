@@ -45,22 +45,8 @@ flowchart LR
 
 ## 📦 安装
 
-### 从 Git 安装
-
 ```bash
-pi install git:github.com/<your-username>/pi-lmstudio-provider
-```
-
-### 本地开发
-
-```bash
-pi install /absolute/path/to/pi-lmstudio-provider
-```
-
-临时加载（不安装）：
-
-```bash
-pi -e ./extensions/lmstudio-provider.ts
+pi install git:github.com/LambdaXIII/pi-lmstudio-provider
 ```
 
 ## 🔧 前置要求

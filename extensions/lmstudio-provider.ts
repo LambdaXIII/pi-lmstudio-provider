@@ -34,18 +34,20 @@ const DETECT_TIMEOUT_MS = 2000; // 每个端口超时 2 秒
  * /api/v1/models 返回的模型对象（LM Studio 原生格式）
  */
 interface LMStudioNativeModel {
-  id: string;
-  type: "llm" | "vlm" | "embeddings" | string;
+  key: string;
+  type: "llm" | "vlm" | "embedding" | string;
+  display_name?: string;
   publisher?: string;
-  arch?: string;
-  compatibility_type?: string;
-  quantization?: string;
-  state: "loaded" | "not-loaded" | string;
+  architecture?: string;
+  quantization?: { name: string; bits_per_weight?: number };
+  loaded_instances?: unknown[];
   max_context_length?: number;
+  capabilities?: { vision?: boolean; reasoning?: unknown; trained_for_tool_use?: boolean };
+  selected_variant?: string;
 }
 
 interface LMStudioNativeResponse {
-  data: LMStudioNativeModel[];
+  models: LMStudioNativeModel[];
 }
 
 // ─── 工具函数 ──────────────────────────────────────────────────────────────────
@@ -99,7 +101,7 @@ async function fetchNativeModels(
   );
   if (!resp.ok) return [];
   const json = (await resp.json()) as LMStudioNativeResponse;
-  return Array.isArray(json.data) ? json.data : [];
+  return Array.isArray(json.models) ? json.models : [];
 }
 
 // ─── Provider 注册 ──────────────────────────────────────────────────────────────
@@ -116,39 +118,53 @@ function unregisterProvider(pi: ExtensionAPI): void {
 }
 
 /**
- * 注册 LM Studio 为 pi provider
+ * 同步注册 LM Studio provider（扩展加载时立即执行）
  *
- * 推理走 OpenAI 兼容层 /v1/chat/completions（支持工具调用），
- * 不传 temperature 等采样参数，让 LM Studio 服务端配置生效。
+ * 注册时 models 列表为空，pi 的 openai-completions 内置实现
+ * 会自动调用 /v1/models 端点获取可用模型。
+ */
+function registerProviderSync(pi: ExtensionAPI, port: number): void {
+  pi.registerProvider(PROVIDER_NAME, {
+    baseUrl: `http://localhost:${port}/v1`,
+    apiKey: process.env.LM_API_KEY ?? "lm-studio",
+    api: "openai-completions",
+    models: [],
+  });
+  currentBaseUrl = `http://localhost:${port}`;
+}
+
+/**
+ * 异步更新已注册 provider 的模型列表
+ * 通过 LM Studio 原生 API 获取模型元数据后，重新注册 provider（覆盖空壳）
  */
 async function registerProvider(
   pi: ExtensionAPI,
   baseUrl: string,
   models: LMStudioNativeModel[]
 ): Promise<void> {
-  // 只注册 LLM 和 VLM 类型，排除 embeddings 等非对话模型
-  const chatModels = models.filter(
-    (m) => m.type === "llm" || m.type === "vlm"
-  );
+  // 排除 embedding 类型，其余全部注册（含 not-loaded，LM Studio 会自动加载）
+  const chatModels = models.filter((m) => m.type !== "embedding");
 
   if (chatModels.length === 0) return;
 
   const piModels = chatModels.map((m) => ({
-    id: m.id,
-    name: m.id,
-    input: (m.type === "vlm"
+    // 优先用 selected_variant（如 "qwen/qwen3.5-9b@q4_k_m"），回退到 key
+    id: m.selected_variant ?? m.key,
+    name: m.display_name ?? m.key,
+    input: (m.capabilities?.vision
       ? ["text", "image"]
       : ["text"]) as ("text" | "image")[],
-    reasoning: false,
+    // 如果模型支持 reasoning 且默认开启
+    reasoning:
+      typeof m.capabilities?.reasoning === "object" &&
+      m.capabilities.reasoning !== null,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    // 使用原生 API 返回的真实上下文窗口，回退到 32768
     contextWindow: m.max_context_length ?? 32768,
     maxTokens: 8192,
   }));
 
   pi.registerProvider(PROVIDER_NAME, {
     baseUrl: `${baseUrl}/v1`,
-    // LM Studio 默认不需要 API Key；如果用户配置了认证，通过环境变量传入
     apiKey: process.env.LM_API_KEY ?? "lm-studio",
     api: "openai-completions",
     models: piModels,
@@ -173,9 +189,9 @@ function formatModelList(models: LMStudioNativeModel[]): string {
   return models
     .map(
       (m, i) =>
-        `  ${i + 1}. ${m.id}` +
+        `  ${i + 1}. ${m.display_name ?? m.key}` +
         (m.max_context_length ? ` (${m.max_context_length} ctx)` : "") +
-        (m.quantization ? ` [${m.quantization}]` : "")
+        (m.quantization?.name ? ` [${m.quantization.name}]` : "")
     )
     .join("\n");
 }
@@ -203,10 +219,8 @@ async function detectAndRegister(
   // 步骤 2：通过原生 API 获取模型元数据
   const models = await fetchNativeModels(baseUrl);
 
-  // 过滤出可注册的模型
-  const chatModels = models.filter(
-    (m) => m.type === "llm" || m.type === "vlm"
-  );
+  // 过滤出可注册的模型（排除 embeddings，保留所有其他类型，含 not-loaded）
+  const chatModels = models.filter((m) => m.type !== "embeddings");
 
   if (chatModels.length === 0) {
     if (!silent && ctx.hasUI) {
@@ -234,14 +248,29 @@ async function detectAndRegister(
 
 // ─── 扩展入口 ──────────────────────────────────────────────────────────────────
 
+/**
+ * 扩展入口：注册 LM Studio provider。
+ *
+ * pi 加载扩展后立即检查可用模型，不会 await 异步操作。
+ * 这里同步注册 provider，让 pi 的 openai-completions 内置实现
+ * 自行连接 LM Studio 并通过 /v1/models 获取模型列表。
+ *
+ * session_start 时异步探测并用原生 API 更新模型元数据。
+ */
 export default function (pi: ExtensionAPI) {
-  // 1. 启动时自动检测（静默模式）
+  const firstPort = SCAN_PORTS[0] ?? 1234;
+
+  // 同步注册：让 pi 立即识别 lmstudio provider
+  // openai-completions 内置实现会自动调用 /v1/models 获取模型
+  registerProviderSync(pi, firstPort);
+
+  // session_start 时异步用原生 API 更新模型元数据
   pi.on("session_start", async (event, ctx) => {
     if (event.reason !== "startup") return;
     await detectAndRegister(pi, ctx, true);
   });
 
-  // 2. /lmstudio - 检测/刷新 + 显示状态 / off 临时卸载
+  // /lmstudio - 检测/刷新 + 显示状态 / off 临时卸载
   pi.registerCommand("lmstudio", {
     description:
       "Detect LM Studio and register models. Append 'off' to temporarily disable for this session.",
@@ -270,9 +299,7 @@ export default function (pi: ExtensionAPI) {
 
       // 如果重新检测失败但之前有注册，展示旧状态
       if (!result.found && existingModels.length > 0 && currentBaseUrl) {
-        const chatModels = existingModels.filter(
-          (m) => m.type === "llm" || m.type === "vlm"
-        );
+        const chatModels = existingModels.filter((m) => m.type !== "embeddings");
         if (chatModels.length > 0 && ctx.hasUI) {
           ctx.ui.notify(
             `LM Studio appears offline. Previously registered models:\n${formatModelList(chatModels)}`,
