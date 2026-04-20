@@ -1,0 +1,26 @@
+{
+  "name": "pi-lmstudio-provider",
+  "version": "1.0.0",
+  "description": "Auto-detect and register LM Studio local models as a provider in pi-coding-agent",
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "lmstudio",
+    "lm-studio",
+    "provider",
+    "local-llm",
+    "extension"
+  ],
+  "license": "MIT",
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": ["./extensions"]
+  }
+}
