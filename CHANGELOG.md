@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.1.1] - 2026-04-22
+
+### Fixed
+
+- **修复模型 ID 错误** — 移除对 `selected_variant` 的使用，直接使用 `key` 作为模型 ID。`selected_variant` 包含量化后缀（如 `@q4_k_m`），导致 API 调用时模型 ID 不正确
+
 ## [1.1.0] - 2026-04-20
 
 ### Added

@@ -292,7 +292,7 @@ function registerProviderSync(pi: ExtensionAPI, port: number): void {
     ? cache.models
         .filter((m) => m.type !== "embedding")
         .map((m) => ({
-          id: m.selected_variant ?? m.key,
+          id: m.key,
           name: m.display_name ?? m.key,
           input: (m.capabilities?.vision
             ? ["text", "image"]
@@ -331,8 +331,7 @@ async function registerProvider(
   if (chatModels.length === 0) return;
 
   const piModels = chatModels.map((m) => ({
-    // 优先用 selected_variant（如 "qwen/qwen3.5-9b@q4_k_m"），回退到 key
-    id: m.selected_variant ?? m.key,
+    id: m.key,
     name: m.display_name ?? m.key,
     input: (m.capabilities?.vision
       ? ["text", "image"]
